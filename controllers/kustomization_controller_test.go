@@ -36,11 +36,10 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/clientcmd"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/fluxcd/pkg/apis/meta"
+	"github.com/fluxcd/pkg/runtime/dependency"
 	"github.com/fluxcd/pkg/testserver"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1beta1"
 
@@ -361,34 +360,85 @@ spec:
 				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "test", Namespace: namespace.Name}, deployment)).To(Succeed())
 				Expect(deployment.Spec.Selector.MatchLabels["app"]).To(Equal("v2"))
 			})
+
+			It("should get resource fail for dependencies not ready", func() {
+				manifests := []testserver.File{
+					{
+						Name: "deployment.yaml",
+						Body: deploymentManifest(namespace.Name, "v3"),
+					},
+				}
+				artifact, err := httpServer.ArtifactFromFiles(manifests)
+				Expect(err).NotTo(HaveOccurred())
+
+				url := fmt.Sprintf("%s/%s", httpServer.URL(), artifact)
+
+				repositoryName := types.NamespacedName{
+					Name:      fmt.Sprintf("%s", randStringRunes(5)),
+					Namespace: namespace.Name,
+				}
+				repository := readyGitRepository(repositoryName, url, "v3", "")
+				Expect(k8sClient.Create(context.Background(), repository)).To(Succeed())
+				Expect(k8sClient.Status().Update(context.Background(), repository)).To(Succeed())
+				defer k8sClient.Delete(context.Background(), repository)
+
+				kName := types.NamespacedName{
+					Name:      fmt.Sprintf("%s", randStringRunes(5)),
+					Namespace: namespace.Name,
+				}
+				k := &kustomizev1.Kustomization{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      kName.Name,
+						Namespace: kName.Namespace,
+					},
+					Spec: kustomizev1.KustomizationSpec{
+						KubeConfig: kubeconfig,
+						Interval:   metav1.Duration{Duration: reconciliationInterval},
+						Path:       "./",
+						Prune:      true,
+						DependsOn: []dependency.CrossNamespaceDependencyReference{
+							{
+								Name: "test-kustomization",
+							},
+						},
+						SourceRef: kustomizev1.CrossNamespaceSourceReference{
+							Kind: sourcev1.GitRepositoryKind,
+							Name: repository.Name,
+						},
+						Suspend:    false,
+						Timeout:    &metav1.Duration{Duration: 60 * time.Second},
+						Validation: "client",
+						Force:      true,
+					},
+				}
+				Expect(k8sClient.Create(context.Background(), k)).To(Succeed())
+				defer k8sClient.Delete(context.Background(), k)
+
+				got := &kustomizev1.Kustomization{}
+				Eventually(func() bool {
+					_ = k8sClient.Get(context.Background(), kName, got)
+					for _, c := range got.Status.Conditions {
+						if c.Reason == meta.DependencyNotReadyReason {
+							return true
+						}
+					}
+					return false
+				}, timeout, interval).Should(BeTrue())
+
+				deployment := &appsv1.Deployment{}
+				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "test", Namespace: namespace.Name}, deployment)).NotTo(Succeed())
+			})
 		})
 	})
 })
 
 func kubeConfigSecret() (*corev1.Secret, error) {
-	c := clientcmdapi.NewConfig()
-	c.CurrentContext = "default"
-	c.Clusters["default"] = &clientcmdapi.Cluster{
-		Server: cfg.Host,
-	}
-	c.Contexts["default"] = &clientcmdapi.Context{
-		Cluster:   "default",
-		Namespace: "default",
-		AuthInfo:  "default",
-	}
-	c.AuthInfos["default"] = &clientcmdapi.AuthInfo{
-		Token: cfg.BearerToken,
-	}
-	cb, err := clientcmd.Write(*c)
-	if err != nil {
-		return nil, err
-	}
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "kubeconfig",
 		},
 		Data: map[string][]byte{
-			"value": cb,
+			"value": kubeConfig,
 		},
 	}, nil
 }

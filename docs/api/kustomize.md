@@ -198,6 +198,21 @@ bool
 </tr>
 <tr>
 <td>
+<code>patches</code><br>
+<em>
+<a href="https://godoc.org/github.com/fluxcd/pkg/apis/kustomize#Patch">
+[]github.com/fluxcd/pkg/apis/kustomize.Patch
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Strategic merge and JSON patches, defined as inline YAML objects,
+capable of targeting objects based on kind, label and annotation selectors.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>patchesStrategicMerge</code><br>
 <em>
 <a href="https://pkg.go.dev/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1?tab=doc#JSON">
@@ -653,6 +668,21 @@ bool
 <td>
 <em>(Optional)</em>
 <p>A list of resources to be included in the health assessment.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>patches</code><br>
+<em>
+<a href="https://godoc.org/github.com/fluxcd/pkg/apis/kustomize#Patch">
+[]github.com/fluxcd/pkg/apis/kustomize.Patch
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Strategic merge and JSON patches, defined as inline YAML objects,
+capable of targeting objects based on kind, label and annotation selectors.</p>
 </td>
 </tr>
 <tr>
